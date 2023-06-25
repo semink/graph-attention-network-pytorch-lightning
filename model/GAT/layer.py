@@ -1,76 +1,49 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import copy
-
-# clone pytorch module and store it to nn.ModuleList()
-def clone(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-class Attention(nn.Module):
-    """Some Information about Attention"""
-    def __init__(self, in_features, alpha=0.2):
-        super(Attention, self).__init__()
-        self.b1 = nn.Linear(in_features, 1, bias=False)
-        self.b2 = nn.Linear(in_features, 1, bias=False)
-        
-        self.nonlinear = nn.LeakyReLU(alpha)
-        
-        
-    def forward(self, x, mask=None):
-        """_summary_
-
-        Args:
-            x (torch.Tensor): Graph signal (B, N, F_in)
-
-        Returns:
-            torch.Tensor: Attention score (B, N, N)
-        """
-        N = x.size(-2)
-        e = self.nonlinear(self.b1(x).expand(-1, -1, N) + self.b2(x).transpose(-1,-2).expand(-1, N, -1))
-        if mask is not None:
-            e = e.masked_fill(mask, -1e9)
-        return F.softmax(e, dim=-1)
     
 
 class GraphAttentionLayer(nn.Module):
-    """Graph Attention Layer
-    Graph attention layer is basically a self-attention of a vector that lies on a graph.
-    Therefore, it only calculates the attention coefficients between nodes that are connected.
-    In the implementation side, we first calculate the attention coefficients between all nodes 
-    and mask out the coefficients between unconnected nodes.
-    
-    Example:
-        >>> GAT = nn.Sequential(GraphAttentionLayer(encoder = nn.Linear(8, 8, bias=False), 
-                                                     attention = Attention(8), 
-                                                     num_heads = 8, 
-                                                     nonlinear = nn.ELU()),
-                                 GraphAttentionLayer(encoder = nn.Linear(8, 8, bias=False), 
-                                                     attention = Attention(8), 
-                                                     num_heads = 1, 
-                                                     nonlinear = nn.Softmax())),
-    """
-    def __init__(self, encoder, attention, num_heads=1,
-                 nonlinear = nn.ELU(),
-                 permutation_invariant_aggregator = lambda a, h: torch.einsum('...nm,...mf->...nf', a, h),
-                 ):
+    def __init__(self, in_features, out_features, dropout, alpha, concat=True):
         super(GraphAttentionLayer, self).__init__()
-        self.encoder =  clone(encoder, num_heads)
-        self.attention = clone(attention, num_heads)
-        self.nonlinear = nonlinear
-        self.permutation_invariant_aggregator = permutation_invariant_aggregator
+        self.dropout = dropout
+        self.in_features = in_features
+        self.out_features = out_features
+        self.alpha = alpha
+        self.concat = concat
         
-    def forward(self, x, mask=None):
-        """_summary_
+        self.W = nn.Parameter(torch.empty(size=(in_features, out_features)))
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        self.a = nn.Parameter(torch.empty(size=(2*out_features, 1)))
+        nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
-        Args:
-            x (torch.Tensor): Graph signal (B, N, F_in)
+        self.leakyrelu = nn.LeakyReLU(self.alpha)
+        
+    def forward(self, h, adj):
+        Wh = torch.mm(h, self.W) # h.shape: (N, in_features), Wh.shape: (N, out_features)
+        e = self._prepare_attentional_mechanism_input(Wh)
 
-        Returns:
-            torch.Tensor: _description_
-        """
-        h = [encoder(x) for encoder in self.encoder]     # (B, N, F_out)
-        a = [attention(x, mask) for attention in self.attention]   # (B, N, N)
-        h = torch.mean(torch.stack([self.permutation_invariant_aggregator(a_, h_) for a_, h_ in zip(a, h)]), dim=0) # (B, N, F_out)
-        x = self.nonlinear(h)
-        return x
+        zero_vec = -9e15*torch.ones_like(e)
+        attention = torch.where(adj > 0, e, zero_vec)
+        attention = F.softmax(attention, dim=1)
+        attention = F.dropout(attention, self.dropout, training=self.training)
+        h_prime = torch.matmul(attention, Wh)
+
+        if self.concat:
+            return F.elu(h_prime)
+        else:
+            return h_prime
+        
+    def _prepare_attentional_mechanism_input(self, Wh):
+        # Wh.shape (N, out_feature)
+        # self.a.shape (2 * out_feature, 1)
+        # Wh1&2.shape (N, 1)
+        # e.shape (N, N)
+        Wh1 = torch.matmul(Wh, self.a[:self.out_features, :])
+        Wh2 = torch.matmul(Wh, self.a[self.out_features:, :])
+        # broadcast add
+        e = Wh1 + Wh2.T
+        return self.leakyrelu(e)
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'

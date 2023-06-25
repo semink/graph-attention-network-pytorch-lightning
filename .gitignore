@@ -161,3 +161,9 @@ cython_debug/
 
 # VSCode
 .vscode/
+
+# logs
+tb_logs/
+
+# data
+data/
