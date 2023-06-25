@@ -167,3 +167,6 @@ tb_logs/
 
 # data
 data/
+
+# test files
+test*.csv
