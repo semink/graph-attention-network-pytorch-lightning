@@ -29,27 +29,27 @@ class GAT(pl.LightningModule):
         x, labels, adj = batch.x, batch.y, batch.adj
         logits = self(x, adj)
         loss = F.nll_loss(logits[batch.train_mask], labels[batch.train_mask])
-        self.log('train/nll_loss', loss)
+        self.log('train/cross_entropy', loss)
         return loss
     
     
     def validation_step(self, batch, batch_idx):
         x, labels, adj = batch.x, batch.y, batch.adj
         logits = self(x, adj)
-        acc = (logits[batch.val_mask].argmax(dim=-1) == labels[batch.val_mask]).sum().item() / labels[batch.val_mask].size(0)
+        acc = accuracy(logits[batch.val_mask], labels[batch.val_mask])
         loss = F.nll_loss(logits[batch.val_mask], labels[batch.val_mask])
         self.log('val/acc', acc)
         self.log('val/cross_entropy', loss)
-        return acc
     
     def test_step(self, batch, batch_idx):
         x, labels, adj = batch.x, batch.y, batch.adj
         logits = self(x, adj)
-        acc = (logits[batch.test_mask].argmax(dim=-1) == labels[batch.test_mask]).sum().item() / labels[batch.test_mask].size(0)
+        acc = accuracy(logits[batch.test_mask], labels[batch.test_mask])
+        loss = F.nll_loss(logits[batch.test_mask], labels[batch.test_mask])
         self.log('test/acc', acc)
-        return acc
+        self.log('test/cross_entropy', loss)
     
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.005, weight_decay=0.0005)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.005, weight_decay=5e-4)
         return optimizer
     

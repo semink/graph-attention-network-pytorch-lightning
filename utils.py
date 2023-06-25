@@ -67,8 +67,5 @@ def normalize_features(mx):
     return mx
 
 
-def accuracy(output, labels):
-    preds = output.max(1)[1].type_as(labels)
-    correct = preds.eq(labels).double()
-    correct = correct.sum()
-    return correct / len(labels)
+def accuracy(logits, labels):
+    return (logits.argmax(dim=-1) == labels).sum().item() / labels.size(0)
