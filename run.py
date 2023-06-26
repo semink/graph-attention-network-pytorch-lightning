@@ -25,7 +25,7 @@ def main(seed=1):
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    transform = T.Compose([T.ToUndirected(), T.AddSelfLoops(), T.ToDense()])
+    transform = T.Compose([T.NormalizeFeatures(), T.AddSelfLoops()])
     dataset = Planetoid(root='./data', name='Cora', transform=transform)
     
     cross_entropy_early_stop_callback = EarlyStopping(monitor='val/cross_entropy', mode='min', patience=100)
@@ -36,16 +36,21 @@ def main(seed=1):
     logger = TensorBoardLogger("tb_logs", name="GAT", version=f'seed_{seed}')
     trainer = pl.Trainer(callbacks=[
                                     cross_entropy_early_stop_callback, 
-                                    # accuracy_early_stop_callback,
+                                    accuracy_early_stop_callback,
                                     checkpoint_callback
-                                    ], logger=logger, max_epochs=1000, accelerator='auto')
+                                    ], logger=logger, max_epochs=10000, accelerator='auto')
     
-    model = GAT(nfeat=dataset.num_features, nhid=8, nclass=dataset.num_classes, 
-                dropout=0.6, alpha=0.2, nheads=8)
+    model = GAT(num_of_layers =2,
+                num_heads_per_layer = [8, 1],
+                num_features_per_layer = [dataset.num_features, 8, dataset.num_classes],
+                add_skip_connection = False,
+                bias = True,
+                dropout = 0.6,
+                log_attention_weights =False)
     trainer.fit(model, train_dataloaders=dataset, val_dataloaders=dataset)
     
-    best_model = GAT.load_from_checkpoint(checkpoint_callback.best_model_path)
-    return trainer.test(best_model, dataloaders=dataset)
+    # best_model = GAT.load_from_checkpoint(checkpoint_callback.best_model_path)
+    return trainer.test(model, dataloaders=dataset)
 
 
 if __name__ == '__main__':

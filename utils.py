@@ -68,4 +68,5 @@ def normalize_features(mx):
 
 
 def accuracy(logits, labels):
-    return (logits.argmax(dim=-1) == labels).sum().item() / labels.size(0)
+    class_predictions = torch.argmax(logits, dim=-1)
+    return torch.sum(torch.eq(class_predictions, labels).float()).item() / len(labels)
